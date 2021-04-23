@@ -1,15 +1,18 @@
 import { interpret, createMachine, assign } from "xstate";
 import Hls from "hls.js";
+import { useEffect, useState } from "react";
 
 const hlsMachine = createMachine({
-  initial: "idle",
+  initial: "init",
   context: {},
   states: {
-    idle: {
+    init: {
       always: {
         cond: (context) => context.hls == null,
         target: "noHlsInstance",
       },
+    },
+    idle: {
       on: {
         setVideo: {
           actions: assign((context, event) => ({
@@ -37,8 +40,10 @@ const hlsMachine = createMachine({
     attachMedia: {
       invoke: {
         src: (context, event) => (callback, onReceive) => {
-          context.hls.attachMedia(context.video);
           context.hls.on(Hls.Events.MEDIA_ATTACHED, () => callback("attachMediaSuccess"));
+          context.hls.on(Hls.Events.ERROR, console.log);
+
+          context.hls.attachMedia(context.video);
         },
       },
       on: {
@@ -73,29 +78,29 @@ const hlsMachine = createMachine({
     ready: {
       on: {
         destroy: {
-          target: 'cleanUp'
-        }
-      }
+          target: "cleanUp",
+        },
+      },
     },
     cleanUp: {
       invoke: {
         src: (context, event) => (callback, onReceive) => {
-          context.hls.detachMedia()
-          context.hls.destroy()
-          callback('hlsDestoySuccess')
-        }
+          context.hls.detachMedia();
+          context.hls.destroy();
+          callback("hlsDestoySuccess");
+        },
       },
       on: {
         hlsDestoySuccess: {
           actions: assign({
             hls: undefined,
             video: undefined,
-            source: undefined
+            source: undefined,
           }),
-          target: 'idle'
-        }
-      }
-    }
+          target: "idle",
+        },
+      },
+    },
   },
 });
 
@@ -107,23 +112,34 @@ hlsMachineService.onTransition((state) => {
 
 hlsMachineService.start();
 
-let video = document.createElement("video");
-video.id = "video";
-video.controls = true;
-document.body.appendChild(video);
-
-window.hlsMachineService = hlsMachineService;
-
-window.setVideo = function () {
+const setVideo = function (video) {
   hlsMachineService.send({
     type: "setVideo",
-    payload: document.getElementById("video"),
+    payload: video,
   });
 };
 
-window.setSource = function (source) {
+const setSource = function (source) {
   hlsMachineService.send({
     type: "setSource",
     payload: source,
   });
 };
+
+const destroy = function (source) {
+  hlsMachineService.send({
+    type: "destroy",
+  });
+};
+
+export default function () {
+  const [step, setStep] = useState(hlsMachineService.state.value);
+  useEffect(() => hlsMachineService.onTransition((state) => setStep(state.value)), []);
+
+  return {
+    step,
+    setVideo,
+    setSource,
+    destroy,
+  };
+}
